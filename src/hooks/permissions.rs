@@ -2,6 +2,7 @@ use super::constants::{
     CLAUDE_DIR, CURSOR_DIR, DROID_DIR, DROID_HOME_ENV, DROID_SETTINGS_FILE, GEMINI_DIR,
     SETTINGS_JSON, SETTINGS_LOCAL_JSON,
 };
+use super::init::resolve_claude_dir;
 use crate::core::stream::exec_capture;
 use crate::discover::lexer::split_for_permissions;
 use serde_json::Value;
@@ -180,9 +181,9 @@ fn get_settings_paths() -> Vec<PathBuf> {
         paths.push(root.join(CLAUDE_DIR).join(SETTINGS_JSON));
         paths.push(root.join(CLAUDE_DIR).join(SETTINGS_LOCAL_JSON));
     }
-    if let Some(home) = dirs::home_dir() {
-        paths.push(home.join(CLAUDE_DIR).join(SETTINGS_JSON));
-        paths.push(home.join(CLAUDE_DIR).join(SETTINGS_LOCAL_JSON));
+    if let Ok(claude_dir) = resolve_claude_dir() {
+        paths.push(claude_dir.join(SETTINGS_JSON));
+        paths.push(claude_dir.join(SETTINGS_LOCAL_JSON));
     }
 
     paths
@@ -470,6 +471,44 @@ fn split_compound_command(cmd: &str) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static CLAUDE_CONFIG_DIR_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn test_get_settings_paths_honors_claude_config_dir() {
+        let _guard = CLAUDE_CONFIG_DIR_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let profile_dir = tmp.path().join("work-profile");
+
+        let orig = std::env::var_os("CLAUDE_CONFIG_DIR");
+        std::env::set_var("CLAUDE_CONFIG_DIR", &profile_dir);
+
+        let paths = get_settings_paths();
+
+        match orig {
+            Some(v) => std::env::set_var("CLAUDE_CONFIG_DIR", v),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
+        }
+
+        assert!(
+            paths.contains(&profile_dir.join(SETTINGS_JSON)),
+            "expected {:?} to include profile settings.json, got {:?}",
+            profile_dir,
+            paths
+        );
+        assert!(paths.contains(&profile_dir.join(SETTINGS_LOCAL_JSON)));
+
+        if let Some(home) = dirs::home_dir() {
+            let default_settings = home.join(CLAUDE_DIR).join(SETTINGS_JSON);
+            assert!(
+                !paths.contains(&default_settings),
+                "should not also read the default ~/.claude when CLAUDE_CONFIG_DIR overrides it"
+            );
+        }
+    }
 
     #[test]
     fn test_parse_bash_pattern() {
