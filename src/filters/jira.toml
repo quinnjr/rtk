@@ -4,7 +4,11 @@ match_command = "^jira\\b"
 strip_ansi = true
 strip_lines_matching = [
   "^\\s*$",
-  "^\\s*--",
+  # Separator rules only. This was once "^\\s*--", which also deleted every
+  # long option from `jira --help` and made the flags look nonexistent.
+  # Three dashes minimum: a bare "--" is Jira's empty-field placeholder and is
+  # content, not decoration.
+  "^\\s*-{3,}\\s*$",
 ]
 truncate_lines_at = 120
 max_lines = 40
@@ -18,3 +22,13 @@ expected = "TYPE\tKEY\tSUMMARY\tSTATUS\nStory\tPROJ-123\tAdd login feature\tIn P
 name = "single issue view"
 input = "KEY: PROJ-123\nSummary: Add login feature\nStatus: In Progress\nAssignee: john@example.com"
 expected = "KEY: PROJ-123\nSummary: Add login feature\nStatus: In Progress\nAssignee: john@example.com"
+
+[[tests.jira]]
+name = "strips separator rules but keeps long options"
+input = "Options:\n------\n      --lead <lead>             Lead account ID\n      --template <template>     Project template key\n  -h, --help                    Print help"
+expected = "Options:\n      --lead <lead>             Lead account ID\n      --template <template>     Project template key\n  -h, --help                    Print help"
+
+[[tests.jira]]
+name = "keeps a bare -- empty-field placeholder"
+input = "Assignee\n--\nFix Version\n--"
+expected = "Assignee\n--\nFix Version\n--"
